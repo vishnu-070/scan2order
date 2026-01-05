@@ -32,8 +32,8 @@ const Header = () => {
 
           {/* Desktop CTA */}
           <div className="hidden lg:flex items-center gap-4">
-            <Button variant="ghost">Log In</Button>
-            <Button variant="hero">Get Started</Button>
+            <Button variant="ghost" onClick={() => window.location.href = '/auth'}>Log In</Button>
+            <Button variant="hero" onClick={() => window.location.href = '/auth'}>Get Started</Button>
           </div>
 
           {/* Mobile Menu Button */}
@@ -59,8 +59,8 @@ const Header = () => {
                 Pricing
               </a>
               <div className="flex flex-col gap-3 pt-4 border-t border-border">
-                <Button variant="ghost" className="w-full">Log In</Button>
-                <Button variant="hero" className="w-full">Get Started</Button>
+                <Button variant="ghost" className="w-full" onClick={() => window.location.href = '/auth'}>Log In</Button>
+                <Button variant="hero" className="w-full" onClick={() => window.location.href = '/auth'}>Get Started</Button>
               </div>
             </nav>
           </div>
