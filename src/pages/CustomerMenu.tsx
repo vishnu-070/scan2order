@@ -714,11 +714,17 @@ const CheckoutDialog = ({
         setCustomerPhone('');
         setNotes('');
       }, 2000);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error placing order:', err);
+      
+      // Check for RLS policy violation (insufficient balance)
+      const isRLSError = err?.code === '42501' || err?.message?.includes('row-level security');
+      
       toast({
-        title: 'Error',
-        description: 'Failed to place order. Please try again.',
+        title: isRLSError ? 'Restaurant Not Accepting Orders' : 'Error',
+        description: isRLSError 
+          ? 'This restaurant is temporarily not accepting orders. Please try again later or contact staff.'
+          : 'Failed to place order. Please try again.',
         variant: 'destructive',
       });
     } finally {
