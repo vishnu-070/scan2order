@@ -163,42 +163,29 @@ const AdminOverview = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle>Recent Orders</CardTitle>
+              <CardTitle>Platform Performance</CardTitle>
             </CardHeader>
             <CardContent>
-              {orders.length === 0 ? (
-                <p className="text-muted-foreground text-center py-4">No orders yet</p>
-              ) : (
-                <div className="space-y-3">
-                  {orders.slice(0, 5).map((order) => (
-                    <div
-                      key={order.id}
-                      className="flex items-center justify-between p-3 rounded-xl bg-muted/50"
-                    >
-                      <div>
-                        <p className="font-medium">#{order.id.slice(0, 8)}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {order.restaurant_name}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-bold">${Number(order.total_amount).toFixed(2)}</p>
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded-full text-xs ${
-                            order.status === 'pending'
-                              ? 'bg-primary/10 text-primary'
-                              : order.status === 'preparing'
-                              ? 'bg-secondary/10 text-secondary'
-                              : 'bg-muted text-muted-foreground'
-                          }`}
-                        >
-                          {order.status}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
+                  <span className="text-muted-foreground">Avg. Order Value</span>
+                  <span className="font-bold">
+                    ${orders.length > 0 ? (totalRevenue / orders.length).toFixed(2) : '0.00'}
+                  </span>
                 </div>
-              )}
+                <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
+                  <span className="text-muted-foreground">Orders Today</span>
+                  <span className="font-bold">{todayOrders.length}</span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
+                  <span className="text-muted-foreground">Total Restaurants</span>
+                  <span className="font-bold">{restaurants.length}</span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
+                  <span className="text-muted-foreground">Active Subscriptions</span>
+                  <span className="font-bold">{activeSubs}</span>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>

@@ -37,7 +37,7 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
     ? [
         { path: '/admin', icon: LayoutDashboard, label: 'Overview' },
         { path: '/admin/restaurants', icon: Building2, label: 'Restaurants' },
-        { path: '/admin/orders', icon: Receipt, label: 'All Orders' },
+        { path: '/admin/orders', icon: Receipt, label: 'Order Metrics' },
         { path: '/admin/subscriptions', icon: CreditCard, label: 'Subscriptions' },
         { path: '/admin/settings', icon: Settings, label: 'Settings' },
       ]
