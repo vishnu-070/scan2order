@@ -4,14 +4,18 @@ import { useAuth } from '@/hooks/useAuth';
 import { useAllRestaurants, useAllOrders, useAllSubscriptions } from '@/hooks/useAdminData';
 import { DashboardLayout } from '@/components/dashboard/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Building2, Receipt, CreditCard, Users, TrendingUp, AlertTriangle } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
+import { Building2, Receipt, TrendingUp } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 const AdminOverview = () => {
   const { user, role, loading: authLoading } = useAuth();
-  const { restaurants } = useAllRestaurants();
+  const { restaurants, loading: restaurantsLoading, updateRestaurant } = useAllRestaurants();
   const { orders } = useAllOrders();
   const { subscriptions } = useAllSubscriptions();
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -22,7 +26,7 @@ const AdminOverview = () => {
     }
   }, [user, role, authLoading, navigate]);
 
-  if (authLoading) {
+  if (authLoading || restaurantsLoading) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-96">
@@ -32,15 +36,38 @@ const AdminOverview = () => {
     );
   }
 
-  const activeRestaurants = restaurants.filter(r => r.is_active).length;
-  const todayOrders = orders.filter(o => {
-    const today = new Date().toDateString();
-    return new Date(o.created_at).toDateString() === today;
-  });
+  const handleToggleActive = async (restaurantId: string, currentStatus: boolean, name: string) => {
+    const { error } = await updateRestaurant(restaurantId, {
+      is_active: !currentStatus,
+    });
+    if (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update restaurant',
+        variant: 'destructive',
+      });
+    } else {
+      toast({
+        title: 'Updated',
+        description: `${name} is now ${!currentStatus ? 'active' : 'inactive'}`,
+      });
+    }
+  };
+
+  // Calculate order values per restaurant
+  const getRestaurantOrderStats = (restaurantId: string) => {
+    const restaurantOrders = orders.filter(o => o.restaurant_id === restaurantId);
+    const totalValue = restaurantOrders.reduce((sum, o) => sum + Number(o.total_amount), 0);
+    return { orderCount: restaurantOrders.length, totalValue };
+  };
+
+  // Get subscription for a restaurant
+  const getRestaurantSubscription = (restaurantId: string) => {
+    return subscriptions.find(s => s.restaurant_id === restaurantId);
+  };
+
   const totalRevenue = orders.reduce((sum, o) => sum + Number(o.total_amount), 0);
-  const pendingOrders = orders.filter(o => o.status === 'pending').length;
-  const trialSubs = subscriptions.filter(s => s.status === 'trial').length;
-  const activeSubs = subscriptions.filter(s => s.status === 'active').length;
+  const activeRestaurants = restaurants.filter(r => r.is_active).length;
 
   return (
     <DashboardLayout>
@@ -48,12 +75,12 @@ const AdminOverview = () => {
         <div>
           <h1 className="font-display text-3xl font-bold mb-2">Platform Overview</h1>
           <p className="text-muted-foreground">
-            Monitor all restaurants and platform-wide metrics
+            View all onboarded restaurants, their order values and plans
           </p>
         </div>
 
         {/* Stats Grid */}
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid sm:grid-cols-3 gap-4">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
@@ -75,11 +102,8 @@ const AdminOverview = () => {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Today's Orders</p>
-                  <p className="text-3xl font-bold mt-1">{todayOrders.length}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {pendingOrders} pending
-                  </p>
+                  <p className="text-sm text-muted-foreground">Total Orders</p>
+                  <p className="text-3xl font-bold mt-1">{orders.length}</p>
                 </div>
                 <div className="w-12 h-12 rounded-xl bg-secondary/10 flex items-center justify-center">
                   <Receipt className="w-6 h-6 text-secondary" />
@@ -94,9 +118,6 @@ const AdminOverview = () => {
                 <div>
                   <p className="text-sm text-muted-foreground">Total Revenue</p>
                   <p className="text-3xl font-bold mt-1">${totalRevenue.toFixed(0)}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    All time
-                  </p>
                 </div>
                 <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
                   <TrendingUp className="w-6 h-6 text-primary" />
@@ -104,110 +125,90 @@ const AdminOverview = () => {
               </div>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Subscriptions</p>
-                  <p className="text-3xl font-bold mt-1">{activeSubs}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {trialSubs} on trial
-                  </p>
-                </div>
-                <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
-                  <CreditCard className="w-6 h-6 text-muted-foreground" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
-        {/* Recent Activity */}
-        <div className="grid lg:grid-cols-2 gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Restaurants</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {restaurants.length === 0 ? (
-                <p className="text-muted-foreground text-center py-4">No restaurants yet</p>
-              ) : (
-                <div className="space-y-3">
-                  {restaurants.slice(0, 5).map((restaurant) => (
+        {/* Restaurants List */}
+        <Card>
+          <CardHeader>
+            <CardTitle>All Restaurants</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {restaurants.length === 0 ? (
+              <p className="text-muted-foreground text-center py-8">No restaurants onboarded yet</p>
+            ) : (
+              <div className="space-y-4">
+                {restaurants.map((restaurant) => {
+                  const stats = getRestaurantOrderStats(restaurant.id);
+                  const subscription = getRestaurantSubscription(restaurant.id);
+                  
+                  return (
                     <div
                       key={restaurant.id}
-                      className="flex items-center justify-between p-3 rounded-xl bg-muted/50"
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-muted/50 border border-border"
                     >
-                      <div>
-                        <p className="font-medium">{restaurant.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          /{restaurant.slug}
-                        </p>
+                      <div className="flex items-center gap-4">
+                        {restaurant.logo_url ? (
+                          <img
+                            src={restaurant.logo_url}
+                            alt={restaurant.name}
+                            className="w-12 h-12 rounded-xl object-cover"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
+                            <Building2 className="w-6 h-6 text-muted-foreground" />
+                          </div>
+                        )}
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-semibold">{restaurant.name}</h3>
+                            <Badge 
+                              variant="outline" 
+                              className={subscription?.status === 'active' 
+                                ? 'bg-green-100 text-green-700 border-green-200' 
+                                : subscription?.status === 'trial'
+                                ? 'bg-primary/10 text-primary border-primary/20'
+                                : 'bg-muted text-muted-foreground'
+                              }
+                            >
+                              {subscription?.plan_name || 'No plan'} ({subscription?.status || 'N/A'})
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">/{restaurant.slug}</p>
+                        </div>
                       </div>
-                      <span
-                        className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          restaurant.is_active
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-muted text-muted-foreground'
-                        }`}
-                      >
-                        {restaurant.is_active ? 'Active' : 'Inactive'}
-                      </span>
+                      
+                      <div className="flex flex-wrap items-center gap-6">
+                        <div className="text-right">
+                          <p className="text-sm text-muted-foreground">Orders</p>
+                          <p className="font-bold">{stats.orderCount}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm text-muted-foreground">Total Value</p>
+                          <p className="font-bold">${stats.totalValue.toFixed(2)}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-muted-foreground">Active</span>
+                          <Switch
+                            checked={restaurant.is_active}
+                            onCheckedChange={() => handleToggleActive(restaurant.id, restaurant.is_active, restaurant.name)}
+                          />
+                        </div>
+                        <a
+                          href={`/menu/${restaurant.slug}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-primary hover:underline"
+                        >
+                          View Menu
+                        </a>
+                      </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Platform Performance</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                  <span className="text-muted-foreground">Avg. Order Value</span>
-                  <span className="font-bold">
-                    ${orders.length > 0 ? (totalRevenue / orders.length).toFixed(2) : '0.00'}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                  <span className="text-muted-foreground">Orders Today</span>
-                  <span className="font-bold">{todayOrders.length}</span>
-                </div>
-                <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                  <span className="text-muted-foreground">Total Restaurants</span>
-                  <span className="font-bold">{restaurants.length}</span>
-                </div>
-                <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                  <span className="text-muted-foreground">Active Subscriptions</span>
-                  <span className="font-bold">{activeSubs}</span>
-                </div>
+                  );
+                })}
               </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Alerts */}
-        {trialSubs > 0 && (
-          <Card className="border-primary/20 bg-primary/5">
-            <CardContent className="pt-6">
-              <div className="flex items-start gap-4">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <AlertTriangle className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <h3 className="font-semibold">Trial Subscriptions</h3>
-                  <p className="text-muted-foreground text-sm">
-                    {trialSubs} restaurant(s) are on trial. Consider reaching out to convert them to paid plans.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </CardContent>
+        </Card>
       </div>
     </DashboardLayout>
   );

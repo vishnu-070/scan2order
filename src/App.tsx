@@ -15,8 +15,6 @@ import DashboardTables from "./pages/dashboard/DashboardTables";
 import DashboardSettings from "./pages/dashboard/DashboardSettings";
 import AdminOverview from "./pages/admin/AdminOverview";
 import AdminRestaurants from "./pages/admin/AdminRestaurants";
-import AdminOrders from "./pages/admin/AdminOrders";
-import AdminSubscriptions from "./pages/admin/AdminSubscriptions";
 import AdminSettings from "./pages/admin/AdminSettings";
 import NotFound from "./pages/NotFound";
 
@@ -45,8 +43,6 @@ const App = () => (
             {/* Master Admin Routes */}
             <Route path="/admin" element={<AdminOverview />} />
             <Route path="/admin/restaurants" element={<AdminRestaurants />} />
-            <Route path="/admin/orders" element={<AdminOrders />} />
-            <Route path="/admin/subscriptions" element={<AdminSubscriptions />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             
             <Route path="*" element={<NotFound />} />

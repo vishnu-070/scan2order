@@ -313,8 +313,10 @@ export const useRestaurantTables = (restaurantId: string | undefined) => {
   return { tables, loading, addTable, updateTable, deleteTable, refetch: fetchTables };
 };
 
+export type OrderWithTable = Order & { table_number?: string };
+
 export const useOrders = (restaurantId: string | undefined) => {
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<OrderWithTable[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -347,14 +349,32 @@ export const useOrders = (restaurantId: string | undefined) => {
   const fetchOrders = async () => {
     if (!restaurantId) return;
 
-    const { data, error } = await supabase
+    const { data: ordersData, error } = await supabase
       .from('orders')
       .select('*')
       .eq('restaurant_id', restaurantId)
       .order('created_at', { ascending: false });
 
-    if (!error && data) {
-      setOrders(data);
+    if (!error && ordersData) {
+      // Fetch table numbers for orders with table_id
+      const tableIds = [...new Set(ordersData.filter(o => o.table_id).map(o => o.table_id as string))];
+      
+      let tableMap = new Map<string, string>();
+      if (tableIds.length > 0) {
+        const { data: tablesData } = await supabase
+          .from('restaurant_tables')
+          .select('id, table_number')
+          .in('id', tableIds);
+        
+        tableMap = new Map(tablesData?.map(t => [t.id, t.table_number]) || []);
+      }
+
+      const ordersWithTables = ordersData.map(order => ({
+        ...order,
+        table_number: order.table_id ? tableMap.get(order.table_id) : undefined,
+      }));
+
+      setOrders(ordersWithTables);
     }
     setLoading(false);
   };
@@ -368,7 +388,7 @@ export const useOrders = (restaurantId: string | undefined) => {
       .single();
 
     if (!error && data) {
-      setOrders(orders.map(o => o.id === orderId ? data : o));
+      setOrders(orders.map(o => o.id === orderId ? { ...data, table_number: o.table_number } : o));
     }
 
     return { data, error };
