@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import { useRestaurant, useOrders, useOrderItems, Order } from '@/hooks/useRestaurant';
+import { useRestaurant, useOrders, useOrderItems, OrderWithTable } from '@/hooks/useRestaurant';
 import { DashboardLayout } from '@/components/dashboard/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -42,7 +42,7 @@ const DashboardOrders = () => {
   const { user, loading: authLoading } = useAuth();
   const { restaurant, loading: restaurantLoading } = useRestaurant();
   const { orders, updateOrderStatus } = useOrders(restaurant?.id);
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<OrderWithTable | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -59,7 +59,7 @@ const DashboardOrders = () => {
     }
   }, [user, restaurant, authLoading, restaurantLoading, navigate]);
 
-  const handleStatusChange = async (orderId: string, newStatus: Order['status']) => {
+  const handleStatusChange = async (orderId: string, newStatus: OrderWithTable['status']) => {
     const { error } = await updateOrderStatus(orderId, newStatus);
     if (error) {
       toast({
@@ -143,7 +143,7 @@ const DashboardOrders = () => {
                         <div>
                           <h3 className="font-semibold">Order #{order.id.slice(0, 8)}</h3>
                           <p className="text-sm text-muted-foreground">
-                            {order.customer_name || 'Guest'} • Table {order.table_id?.slice(0, 4) || 'N/A'}
+                            {order.customer_name || 'Guest'} • Table {order.table_number || 'N/A'}
                           </p>
                           <p className="text-xs text-muted-foreground mt-1">
                             {new Date(order.created_at).toLocaleString()}
@@ -161,7 +161,7 @@ const DashboardOrders = () => {
                         </div>
                         <Select
                           value={order.status}
-                          onValueChange={(value) => handleStatusChange(order.id, value as Order['status'])}
+                          onValueChange={(value) => handleStatusChange(order.id, value as OrderWithTable['status'])}
                         >
                           <SelectTrigger 
                             className="w-[130px]" 
@@ -198,7 +198,7 @@ const DashboardOrders = () => {
 };
 
 interface OrderDetailsDialogProps {
-  order: Order | null;
+  order: OrderWithTable | null;
   currency: string;
   onClose: () => void;
 }
@@ -225,6 +225,10 @@ const OrderDetailsDialog = ({ order, currency, onClose }: OrderDetailsDialogProp
               <span className="font-medium">{order.customer_phone}</span>
             </div>
           )}
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Table</span>
+            <span className="font-medium">{order.table_number || 'N/A'}</span>
+          </div>
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Time</span>
             <span className="font-medium">
