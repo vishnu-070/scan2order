@@ -25,7 +25,12 @@ import {
   MapPin,
   Send,
   Check,
-  X
+  X,
+  ClipboardList,
+  Clock,
+  UtensilsCrossed,
+  CheckCircle2,
+  XCircle
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { Tables } from '@/integrations/supabase/types';
@@ -33,12 +38,31 @@ import type { Tables } from '@/integrations/supabase/types';
 type Restaurant = Tables<'restaurants'>;
 type MenuCategory = Tables<'menu_categories'>;
 type MenuItem = Tables<'menu_items'>;
+type Order = Tables<'orders'>;
 
 interface CartItem {
   menuItem: MenuItem;
   quantity: number;
   notes?: string;
 }
+
+const SESSION_ORDERS_KEY = 'scan2serve_session_orders';
+
+const getSessionOrders = (): string[] => {
+  try {
+    return JSON.parse(sessionStorage.getItem(SESSION_ORDERS_KEY) || '[]');
+  } catch {
+    return [];
+  }
+};
+
+const addSessionOrder = (orderId: string) => {
+  const orders = getSessionOrders();
+  if (!orders.includes(orderId)) {
+    orders.push(orderId);
+    sessionStorage.setItem(SESSION_ORDERS_KEY, JSON.stringify(orders));
+  }
+};
 
 const CustomerMenu = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -53,6 +77,9 @@ const CustomerMenu = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
+  const [showMyOrders, setShowMyOrders] = useState(false);
+  const [myOrders, setMyOrders] = useState<Order[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const { toast } = useToast();
 
@@ -105,6 +132,28 @@ const CustomerMenu = () => {
       setError('Failed to load menu');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchMyOrders = async () => {
+    const orderIds = getSessionOrders();
+    if (orderIds.length === 0) return;
+    
+    setLoadingOrders(true);
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .in('id', orderIds)
+        .order('created_at', { ascending: false });
+      
+      if (!error && data) {
+        setMyOrders(data);
+      }
+    } catch (err) {
+      console.error('Error fetching orders:', err);
+    } finally {
+      setLoadingOrders(false);
     }
   };
 
@@ -220,11 +269,26 @@ const CustomerMenu = () => {
               )}
             </div>
           )}
-          {tableId && (
-            <Badge variant="secondary" className="mt-4">
-              Table #{tableId.slice(0, 4)}
-            </Badge>
-          )}
+          <div className="flex items-center gap-2 mt-4">
+            {tableId && (
+              <Badge variant="secondary">
+                Table #{tableId.slice(0, 4)}
+              </Badge>
+            )}
+            {getSessionOrders().length > 0 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setShowMyOrders(true);
+                  fetchMyOrders();
+                }}
+              >
+                <ClipboardList className="w-4 h-4 mr-1" />
+                My Orders
+              </Button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -432,6 +496,15 @@ const CustomerMenu = () => {
           setShowCheckout(false);
         }}
       />
+
+      {/* My Orders Dialog */}
+      <MyOrdersDialog
+        open={showMyOrders}
+        onClose={() => setShowMyOrders(false)}
+        orders={myOrders}
+        loading={loadingOrders}
+        currency={restaurant.currency}
+      />
     </div>
   );
 };
@@ -525,6 +598,9 @@ const CheckoutDialog = ({
         .single();
 
       if (orderError) throw orderError;
+
+      // Save order ID to session for "My Orders" feature
+      addSessionOrder(order.id);
 
       // Create order items
       const orderItems = cart.map((item) => ({
@@ -633,6 +709,94 @@ const CheckoutDialog = ({
                 Place Order
               </>
             )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// Status display helpers
+const statusColors: Record<string, string> = {
+  pending: 'bg-primary/10 text-primary border-primary/20',
+  preparing: 'bg-secondary/10 text-secondary border-secondary/20',
+  ready: 'bg-green-100 text-green-700 border-green-200',
+  served: 'bg-muted text-muted-foreground border-border',
+  cancelled: 'bg-destructive/10 text-destructive border-destructive/20',
+};
+
+const statusIcons: Record<string, typeof Clock> = {
+  pending: Clock,
+  preparing: UtensilsCrossed,
+  ready: CheckCircle2,
+  served: CheckCircle2,
+  cancelled: XCircle,
+};
+
+interface MyOrdersDialogProps {
+  open: boolean;
+  onClose: () => void;
+  orders: Order[];
+  loading: boolean;
+  currency: string;
+}
+
+const MyOrdersDialog = ({ open, onClose, orders, loading, currency }: MyOrdersDialogProps) => {
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ClipboardList className="w-5 h-5" />
+            My Orders
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="py-8 text-center text-muted-foreground">
+              Loading orders...
+            </div>
+          ) : orders.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">
+              No orders found
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {orders.map((order) => {
+                const StatusIcon = statusIcons[order.status] || Clock;
+                return (
+                  <div
+                    key={order.id}
+                    className="p-4 rounded-xl border border-border bg-muted/30"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <div className={`p-2 rounded-lg ${statusColors[order.status]?.split(' ')[0] || 'bg-muted'}`}>
+                          <StatusIcon className={`w-4 h-4 ${statusColors[order.status]?.split(' ')[1] || 'text-muted-foreground'}`} />
+                        </div>
+                        <div>
+                          <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {new Date(order.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold">{currency} {Number(order.total_amount).toFixed(2)}</p>
+                        <Badge variant="outline" className={statusColors[order.status]}>
+                          {order.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} className="w-full">
+            Close
           </Button>
         </DialogFooter>
       </DialogContent>
