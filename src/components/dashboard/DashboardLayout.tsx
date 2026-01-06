@@ -1,7 +1,10 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { useRestaurant } from '@/hooks/useRestaurant';
+import { useRestaurantBalance } from '@/hooks/useRestaurantBalance';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   QrCode,
   LogOut,
@@ -12,10 +15,12 @@ import {
   Settings,
   Grid3X3,
   Building2,
-  CreditCard,
+  Wallet,
+  AlertTriangle,
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -23,13 +28,27 @@ interface DashboardLayoutProps {
 
 export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   const { user, role, signOut } = useAuth();
+  const { restaurant } = useRestaurant();
+  const { balance, isLowBalance, canAcceptOrders } = useRestaurantBalance(restaurant?.id);
   const navigate = useNavigate();
   const location = useLocation();
+  const { toast } = useToast();
 
   const handleSignOut = async () => {
     await signOut();
     navigate('/');
   };
+
+  // Show low balance warning toast
+  useEffect(() => {
+    if (isLowBalance && role !== 'master_admin') {
+      toast({
+        title: 'Low Balance Warning',
+        description: `Your balance is ₹${balance?.toFixed(0)}. Recharge to continue accepting orders.`,
+        variant: 'destructive',
+      });
+    }
+  }, [isLowBalance, balance]);
 
   const isMasterAdmin = role === 'master_admin';
 
@@ -60,6 +79,43 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
             <span className="font-display font-bold text-xl">Scan2Serve</span>
           </Link>
         </div>
+
+        {/* Balance Display - Only for restaurant admins */}
+        {!isMasterAdmin && balance !== null && (
+          <div className="p-4 border-b border-border">
+            <div className={cn(
+              "p-3 rounded-xl",
+              isLowBalance ? "bg-destructive/10" : "bg-primary/10"
+            )}>
+              <div className="flex items-center gap-2 mb-1">
+                <Wallet className={cn(
+                  "w-4 h-4",
+                  isLowBalance ? "text-destructive" : "text-primary"
+                )} />
+                <span className="text-xs font-medium text-muted-foreground">Account Balance</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className={cn(
+                  "text-xl font-bold",
+                  isLowBalance ? "text-destructive" : "text-foreground"
+                )}>
+                  ₹{balance.toFixed(0)}
+                </span>
+                {isLowBalance && (
+                  <Badge variant="destructive" className="text-xs">
+                    <AlertTriangle className="w-3 h-3 mr-1" />
+                    Low
+                  </Badge>
+                )}
+              </div>
+              {!canAcceptOrders && (
+                <p className="text-xs text-destructive mt-2">
+                  Orders paused. Recharge to continue.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-1">
@@ -113,10 +169,33 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
             </div>
             <span className="font-display font-bold">Scan2Serve</span>
           </Link>
+          
+          {/* Mobile Balance Display */}
+          {!isMasterAdmin && balance !== null && (
+            <div className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded-lg text-sm font-semibold",
+              isLowBalance ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+            )}>
+              <Wallet className="w-4 h-4" />
+              ₹{balance.toFixed(0)}
+              {isLowBalance && <AlertTriangle className="w-3 h-3" />}
+            </div>
+          )}
+          
           <Button variant="ghost" size="icon" onClick={handleSignOut}>
             <LogOut className="w-5 h-5" />
           </Button>
         </div>
+        
+        {/* Low balance warning banner */}
+        {!isMasterAdmin && !canAcceptOrders && (
+          <div className="px-4 pb-2">
+            <div className="bg-destructive/10 text-destructive text-xs p-2 rounded-lg flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>Orders paused due to low balance. Please recharge.</span>
+            </div>
+          </div>
+        )}
         
         {/* Mobile Navigation */}
         <nav className="flex overflow-x-auto px-2 pb-2 gap-1">
