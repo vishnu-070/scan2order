@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useRestaurant } from '@/hooks/useRestaurant';
+import { useRestaurantBalance } from '@/hooks/useAdminData';
 import { DashboardLayout } from '@/components/dashboard/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -16,7 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Save, Building2, Globe, Mail, Phone, MapPin } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Save, Building2, Globe, Mail, Phone, MapPin, Wallet, Plus, History } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 const currencies = [
@@ -31,6 +39,7 @@ const currencies = [
 const DashboardSettings = () => {
   const { user, loading: authLoading } = useAuth();
   const { restaurant, loading: restaurantLoading, updateRestaurant } = useRestaurant();
+  const { balance, transactions, addRecharge, loading: balanceLoading } = useRestaurantBalance(restaurant?.id);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -42,6 +51,10 @@ const DashboardSettings = () => {
     is_active: true,
   });
   const [saving, setSaving] = useState(false);
+  const [showRechargeDialog, setShowRechargeDialog] = useState(false);
+  const [showTransactionsDialog, setShowTransactionsDialog] = useState(false);
+  const [rechargeAmount, setRechargeAmount] = useState('');
+  const [recharging, setRecharging] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -82,7 +95,6 @@ const DashboardSettings = () => {
       email: formData.email.trim() || null,
       currency: formData.currency,
       logo_url: formData.logo_url.trim() || null,
-      is_active: formData.is_active,
     });
 
     if (error) {
@@ -98,6 +110,37 @@ const DashboardSettings = () => {
       });
     }
     setSaving(false);
+  };
+
+  const handleRecharge = async () => {
+    const amount = parseFloat(rechargeAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast({
+        title: 'Invalid amount',
+        description: 'Please enter a valid positive amount',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setRecharging(true);
+    const { error } = await addRecharge(amount, `Self-recharge: ${amount}`);
+    
+    if (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to add balance',
+        variant: 'destructive',
+      });
+    } else {
+      toast({
+        title: 'Balance added',
+        description: `Successfully added ${formData.currency} ${amount} to your account`,
+      });
+      setShowRechargeDialog(false);
+      setRechargeAmount('');
+    }
+    setRecharging(false);
   };
 
   if (authLoading || restaurantLoading) {
@@ -233,15 +276,53 @@ const DashboardSettings = () => {
             </div>
             <div className="flex items-center justify-between">
               <div>
-                <Label>Restaurant Active</Label>
+                <Label>Restaurant Status</Label>
                 <p className="text-sm text-muted-foreground">
-                  When disabled, customers cannot view your menu or place orders
+                  {formData.is_active 
+                    ? 'Your restaurant is active and accepting orders' 
+                    : 'Your restaurant is inactive. Contact admin to reactivate.'}
                 </p>
               </div>
-              <Switch
-                checked={formData.is_active}
-                onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
-              />
+              <Badge variant={formData.is_active ? 'default' : 'secondary'}>
+                {formData.is_active ? 'Active' : 'Inactive'}
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Balance Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Wallet className="w-5 h-5" />
+              Account Balance
+            </CardTitle>
+            <CardDescription>
+              Maintain a minimum balance of 500 to accept orders
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-3xl font-bold">
+                  {formData.currency} {balance?.balance?.toFixed(2) || '0.00'}
+                </p>
+                {(balance?.balance || 0) < 500 && (
+                  <p className="text-sm text-destructive mt-1">
+                    Balance below minimum. Customers cannot place orders.
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setShowTransactionsDialog(true)}>
+                  <History className="w-4 h-4 mr-2" />
+                  History
+                </Button>
+                <Button onClick={() => setShowRechargeDialog(true)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Recharge
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -252,6 +333,90 @@ const DashboardSettings = () => {
             {saving ? 'Saving...' : 'Save Changes'}
           </Button>
         </div>
+
+        {/* Recharge Dialog */}
+        <Dialog open={showRechargeDialog} onOpenChange={setShowRechargeDialog}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Recharge Balance</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label>Current Balance</Label>
+                <p className="text-lg font-semibold">
+                  {formData.currency} {balance?.balance?.toFixed(2) || '0.00'}
+                </p>
+              </div>
+              <div>
+                <Label>Amount to Add</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  value={rechargeAmount}
+                  onChange={(e) => setRechargeAmount(e.target.value)}
+                  placeholder="Enter amount"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowRechargeDialog(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleRecharge} disabled={recharging || !rechargeAmount}>
+                {recharging ? 'Adding...' : 'Add Balance'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Transactions Dialog */}
+        <Dialog open={showTransactionsDialog} onOpenChange={setShowTransactionsDialog}>
+          <DialogContent className="max-w-md max-h-[80vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle>Transaction History</DialogTitle>
+            </DialogHeader>
+            <div className="flex-1 overflow-y-auto">
+              {transactions.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">
+                  No transactions yet
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {transactions.map((tx) => (
+                    <div
+                      key={tx.id}
+                      className="flex items-center justify-between p-3 rounded-lg border border-border"
+                    >
+                      <div>
+                        <p className="font-medium text-sm">
+                          {tx.transaction_type === 'recharge' ? 'Recharge' : 
+                           tx.transaction_type === 'admin_credit' ? 'Admin Credit' : 'Order Deduction'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(tx.created_at).toLocaleString()}
+                        </p>
+                        {tx.description && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {tx.description}
+                          </p>
+                        )}
+                      </div>
+                      <span className={`font-bold ${tx.amount > 0 ? 'text-green-600' : 'text-destructive'}`}>
+                        {tx.amount > 0 ? '+' : ''}{formData.currency} {tx.amount.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowTransactionsDialog(false)} className="w-full">
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );

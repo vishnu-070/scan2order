@@ -1,19 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import { useAllRestaurants, useAllSubscriptions } from '@/hooks/useAdminData';
+import { useAllRestaurants, useAllSubscriptions, useAllBalances } from '@/hooks/useAdminData';
 import { DashboardLayout } from '@/components/dashboard/DashboardLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from '@/components/ui/dialog';
-import { Building2, Search, ExternalLink, MapPin, Phone, Mail, CreditCard } from 'lucide-react';
+import { Building2, Search, ExternalLink, MapPin, Phone, Mail, CreditCard, Wallet, Plus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { Tables } from '@/integrations/supabase/types';
 
@@ -23,8 +26,14 @@ const AdminRestaurants = () => {
   const { user, role, loading: authLoading } = useAuth();
   const { restaurants, loading, updateRestaurant } = useAllRestaurants();
   const { subscriptions } = useAllSubscriptions();
+  const { balances, addBalance, refetch: refetchBalances } = useAllBalances();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
+  const [showAddBalanceDialog, setShowAddBalanceDialog] = useState(false);
+  const [balanceRestaurant, setBalanceRestaurant] = useState<Restaurant | null>(null);
+  const [balanceAmount, setBalanceAmount] = useState('');
+  const [balanceDescription, setBalanceDescription] = useState('');
+  const [addingBalance, setAddingBalance] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -55,8 +64,54 @@ const AdminRestaurants = () => {
     }
   };
 
+  const handleAddBalance = async () => {
+    if (!balanceRestaurant || !balanceAmount) return;
+    
+    setAddingBalance(true);
+    const amount = parseFloat(balanceAmount);
+    
+    if (isNaN(amount) || amount <= 0) {
+      toast({
+        title: 'Invalid amount',
+        description: 'Please enter a valid positive amount',
+        variant: 'destructive',
+      });
+      setAddingBalance(false);
+      return;
+    }
+
+    const { error } = await addBalance(
+      balanceRestaurant.id, 
+      amount, 
+      balanceDescription || `Admin credit: ${amount}`
+    );
+    
+    if (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to add balance',
+        variant: 'destructive',
+      });
+    } else {
+      toast({
+        title: 'Balance added',
+        description: `Added ${amount} to ${balanceRestaurant.name}`,
+      });
+      setShowAddBalanceDialog(false);
+      setBalanceAmount('');
+      setBalanceDescription('');
+      setBalanceRestaurant(null);
+      refetchBalances();
+    }
+    setAddingBalance(false);
+  };
+
   const getRestaurantSubscription = (restaurantId: string) => {
     return subscriptions.find(s => s.restaurant_id === restaurantId);
+  };
+
+  const getRestaurantBalance = (restaurantId: string) => {
+    return balances.find(b => b.restaurant_id === restaurantId);
   };
 
   const filteredRestaurants = restaurants.filter(
@@ -112,6 +167,7 @@ const AdminRestaurants = () => {
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredRestaurants.map((restaurant) => {
               const subscription = getRestaurantSubscription(restaurant.id);
+              const balance = getRestaurantBalance(restaurant.id);
               
               return (
                 <Card
@@ -147,6 +203,19 @@ const AdminRestaurants = () => {
                       />
                     </div>
                     
+                    {/* Balance Info */}
+                    <div className="mb-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Wallet className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">
+                          Balance: {restaurant.currency} {balance?.balance?.toFixed(2) || '0.00'}
+                        </span>
+                        {(balance?.balance || 0) < 500 && (
+                          <Badge variant="destructive" className="text-xs">Low</Badge>
+                        )}
+                      </div>
+                    </div>
+                    
                     {/* Subscription Info */}
                     <div className="mb-4">
                       <Badge 
@@ -168,12 +237,26 @@ const AdminRestaurants = () => {
                         {new Date(restaurant.created_at).toLocaleDateString()}
                       </span>
                       <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                        <span className="text-xs text-muted-foreground">Active</span>
-                        <Switch
-                          checked={restaurant.is_active}
-                          onCheckedChange={() => handleToggleActive(restaurant)}
-                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setBalanceRestaurant(restaurant);
+                            setShowAddBalanceDialog(true);
+                          }}
+                        >
+                          <Plus className="w-3 h-3 mr-1" />
+                          Add Balance
+                        </Button>
                       </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-border" onClick={(e) => e.stopPropagation()}>
+                      <span className="text-xs text-muted-foreground">Active</span>
+                      <Switch
+                        checked={restaurant.is_active}
+                        onCheckedChange={() => handleToggleActive(restaurant)}
+                      />
                     </div>
                   </CardContent>
                 </Card>
@@ -192,9 +275,57 @@ const AdminRestaurants = () => {
               <RestaurantDetails 
                 restaurant={selectedRestaurant} 
                 subscription={getRestaurantSubscription(selectedRestaurant.id)}
+                balance={getRestaurantBalance(selectedRestaurant.id)}
                 onToggleActive={() => handleToggleActive(selectedRestaurant)}
+                onAddBalance={() => {
+                  setBalanceRestaurant(selectedRestaurant);
+                  setShowAddBalanceDialog(true);
+                  setSelectedRestaurant(null);
+                }}
               />
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Balance Dialog */}
+        <Dialog open={showAddBalanceDialog} onOpenChange={setShowAddBalanceDialog}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Add Balance</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label>Restaurant</Label>
+                <p className="text-sm font-medium">{balanceRestaurant?.name}</p>
+              </div>
+              <div>
+                <Label>Amount</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  value={balanceAmount}
+                  onChange={(e) => setBalanceAmount(e.target.value)}
+                  placeholder="Enter amount"
+                />
+              </div>
+              <div>
+                <Label>Description (optional)</Label>
+                <Input
+                  value={balanceDescription}
+                  onChange={(e) => setBalanceDescription(e.target.value)}
+                  placeholder="e.g., Initial credit, Bonus"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowAddBalanceDialog(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleAddBalance} disabled={addingBalance || !balanceAmount}>
+                {addingBalance ? 'Adding...' : 'Add Balance'}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
@@ -205,10 +336,12 @@ const AdminRestaurants = () => {
 interface RestaurantDetailsProps {
   restaurant: Restaurant;
   subscription?: Tables<'subscriptions'> & { restaurant_name?: string };
+  balance?: { balance: number };
   onToggleActive: () => void;
+  onAddBalance: () => void;
 }
 
-const RestaurantDetails = ({ restaurant, subscription, onToggleActive }: RestaurantDetailsProps) => {
+const RestaurantDetails = ({ restaurant, subscription, balance, onToggleActive, onAddBalance }: RestaurantDetailsProps) => {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-4">
@@ -254,6 +387,26 @@ const RestaurantDetails = ({ restaurant, subscription, onToggleActive }: Restaur
             <span>{restaurant.email}</span>
           </div>
         )}
+      </div>
+
+      {/* Balance Section */}
+      <div className="pt-4 border-t border-border">
+        <h4 className="font-semibold mb-3 flex items-center gap-2">
+          <Wallet className="w-4 h-4" />
+          Account Balance
+        </h4>
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-2xl font-bold">
+            {restaurant.currency} {balance?.balance?.toFixed(2) || '0.00'}
+          </span>
+          {(balance?.balance || 0) < 500 && (
+            <Badge variant="destructive">Below minimum (500)</Badge>
+          )}
+        </div>
+        <Button onClick={onAddBalance} className="w-full" variant="outline">
+          <Plus className="w-4 h-4 mr-2" />
+          Add Balance
+        </Button>
       </div>
 
       {/* Subscription Details */}

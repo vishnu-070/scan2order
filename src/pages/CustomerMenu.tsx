@@ -40,10 +40,21 @@ type MenuCategory = Tables<'menu_categories'>;
 type MenuItem = Tables<'menu_items'>;
 type Order = Tables<'orders'>;
 
+interface RestaurantBalance {
+  balance: number;
+}
+
 interface CartItem {
   menuItem: MenuItem;
   quantity: number;
   notes?: string;
+}
+
+interface OrderItem {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
 }
 
 const SESSION_ORDERS_KEY = 'scan2serve_session_orders';
@@ -68,8 +79,10 @@ const CustomerMenu = () => {
   const { slug } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
   const tableId = searchParams.get('table');
+  const [tableName, setTableName] = useState<string | null>(null);
   
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  const [restaurantBalance, setRestaurantBalance] = useState<RestaurantBalance | null>(null);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,6 +92,7 @@ const CustomerMenu = () => {
   const [showCheckout, setShowCheckout] = useState(false);
   const [showMyOrders, setShowMyOrders] = useState(false);
   const [myOrders, setMyOrders] = useState<Order[]>([]);
+  const [orderItems, setOrderItems] = useState<Record<string, OrderItem[]>>({});
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const { toast } = useToast();
@@ -107,6 +121,28 @@ const CustomerMenu = () => {
       }
 
       setRestaurant(restaurantData);
+
+      // Fetch restaurant balance
+      const { data: balanceData } = await supabase
+        .from('restaurant_balances')
+        .select('balance')
+        .eq('restaurant_id', restaurantData.id)
+        .maybeSingle();
+
+      setRestaurantBalance(balanceData);
+
+      // Fetch table name if tableId is provided
+      if (tableId) {
+        const { data: tableData } = await supabase
+          .from('restaurant_tables')
+          .select('table_number')
+          .eq('id', tableId)
+          .maybeSingle();
+        
+        if (tableData) {
+          setTableName(tableData.table_number);
+        }
+      }
 
       // Fetch categories
       const { data: categoriesData } = await supabase
@@ -149,11 +185,52 @@ const CustomerMenu = () => {
       
       if (!error && data) {
         setMyOrders(data);
+        
+        // Fetch order items for each order
+        const itemsPromises = data.map(async (order) => {
+          const { data: items } = await supabase
+            .from('order_items')
+            .select('id, name, price, quantity')
+            .eq('order_id', order.id);
+          return { orderId: order.id, items: items || [] };
+        });
+        
+        const allItems = await Promise.all(itemsPromises);
+        const itemsMap: Record<string, OrderItem[]> = {};
+        allItems.forEach(({ orderId, items }) => {
+          itemsMap[orderId] = items;
+        });
+        setOrderItems(itemsMap);
       }
     } catch (err) {
       console.error('Error fetching orders:', err);
     } finally {
       setLoadingOrders(false);
+    }
+  };
+
+  const handleCancelOrder = async (orderId: string) => {
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'cancelled' })
+        .eq('id', orderId);
+      
+      if (error) throw error;
+      
+      toast({
+        title: 'Order cancelled',
+        description: 'Your order has been cancelled. Show this to staff for refund.',
+      });
+      
+      fetchMyOrders();
+    } catch (err) {
+      console.error('Error cancelling order:', err);
+      toast({
+        title: 'Error',
+        description: 'Failed to cancel order',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -270,9 +347,9 @@ const CustomerMenu = () => {
             </div>
           )}
           <div className="flex items-center gap-2 mt-4">
-            {tableId && (
+            {tableName && (
               <Badge variant="secondary">
-                Table #{tableId.slice(0, 4)}
+                Table {tableName}
               </Badge>
             )}
             {getSessionOrders().length > 0 && (
@@ -289,6 +366,15 @@ const CustomerMenu = () => {
               </Button>
             )}
           </div>
+          
+          {/* Balance warning */}
+          {restaurantBalance && restaurantBalance.balance < 500 && (
+            <div className="mt-4 p-3 rounded-lg bg-destructive/20 text-primary-foreground">
+              <p className="text-sm font-medium">
+                ⚠️ This restaurant is currently not accepting orders. Please contact staff.
+              </p>
+            </div>
+          )}
         </div>
       </header>
 
@@ -495,6 +581,7 @@ const CustomerMenu = () => {
           setCart([]);
           setShowCheckout(false);
         }}
+        restaurantBalance={restaurantBalance}
       />
 
       {/* My Orders Dialog */}
@@ -502,8 +589,11 @@ const CustomerMenu = () => {
         open={showMyOrders}
         onClose={() => setShowMyOrders(false)}
         orders={myOrders}
+        orderItems={orderItems}
         loading={loadingOrders}
         currency={restaurant.currency}
+        tableName={tableName}
+        onCancelOrder={handleCancelOrder}
       />
     </div>
   );
@@ -561,6 +651,7 @@ interface CheckoutDialogProps {
   tableId: string | null;
   total: number;
   onSuccess: () => void;
+  restaurantBalance: RestaurantBalance | null;
 }
 
 const CheckoutDialog = ({
@@ -571,6 +662,7 @@ const CheckoutDialog = ({
   tableId,
   total,
   onSuccess,
+  restaurantBalance,
 }: CheckoutDialogProps) => {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -578,6 +670,8 @@ const CheckoutDialog = ({
   const [submitting, setSubmitting] = useState(false);
   const [orderPlaced, setOrderPlaced] = useState(false);
   const { toast } = useToast();
+
+  const canOrder = total > 0 && (restaurantBalance?.balance || 0) >= 500;
 
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -695,12 +789,21 @@ const CheckoutDialog = ({
               </span>
             </div>
           </div>
+          {!canOrder && (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+              <p className="text-sm text-destructive">
+                {total === 0 
+                  ? 'Cannot place an order with no items.' 
+                  : 'This restaurant is currently not accepting orders.'}
+              </p>
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={submitting}>
+          <Button onClick={handleSubmit} disabled={submitting || !canOrder}>
             {submitting ? (
               'Placing Order...'
             ) : (
@@ -737,70 +840,192 @@ interface MyOrdersDialogProps {
   open: boolean;
   onClose: () => void;
   orders: Order[];
+  orderItems: Record<string, OrderItem[]>;
   loading: boolean;
   currency: string;
+  tableName: string | null;
+  onCancelOrder: (orderId: string) => void;
 }
 
-const MyOrdersDialog = ({ open, onClose, orders, loading, currency }: MyOrdersDialogProps) => {
+const MyOrdersDialog = ({ open, onClose, orders, orderItems, loading, currency, tableName, onCancelOrder }: MyOrdersDialogProps) => {
+  const [showCancelledBill, setShowCancelledBill] = useState<Order | null>(null);
+
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md max-h-[80vh] overflow-hidden flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ClipboardList className="w-5 h-5" />
-            My Orders
-          </DialogTitle>
-        </DialogHeader>
-        <div className="flex-1 overflow-y-auto">
-          {loading ? (
-            <div className="py-8 text-center text-muted-foreground">
-              Loading orders...
-            </div>
-          ) : orders.length === 0 ? (
-            <div className="py-8 text-center text-muted-foreground">
-              No orders found
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {orders.map((order) => {
-                const StatusIcon = statusIcons[order.status] || Clock;
-                return (
-                  <div
-                    key={order.id}
-                    className="p-4 rounded-xl border border-border bg-muted/30"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-3">
-                        <div className={`p-2 rounded-lg ${statusColors[order.status]?.split(' ')[0] || 'bg-muted'}`}>
-                          <StatusIcon className={`w-4 h-4 ${statusColors[order.status]?.split(' ')[1] || 'text-muted-foreground'}`} />
+    <>
+      <Dialog open={open} onOpenChange={onClose}>
+        <DialogContent className="max-w-md max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardList className="w-5 h-5" />
+              My Orders
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto">
+            {loading ? (
+              <div className="py-8 text-center text-muted-foreground">
+                Loading orders...
+              </div>
+            ) : orders.length === 0 ? (
+              <div className="py-8 text-center text-muted-foreground">
+                No orders found
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {orders.map((order) => {
+                  const StatusIcon = statusIcons[order.status] || Clock;
+                  const items = orderItems[order.id] || [];
+                  const isCancelled = order.status === 'cancelled';
+                  const canCancel = order.status === 'pending';
+                  
+                  return (
+                    <div
+                      key={order.id}
+                      className={`p-4 rounded-xl border ${isCancelled ? 'border-destructive/30 bg-destructive/5' : 'border-border bg-muted/30'}`}
+                    >
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="flex items-start gap-3">
+                          <div className={`p-2 rounded-lg ${statusColors[order.status]?.split(' ')[0] || 'bg-muted'}`}>
+                            <StatusIcon className={`w-4 h-4 ${statusColors[order.status]?.split(' ')[1] || 'text-muted-foreground'}`} />
+                          </div>
+                          <div>
+                            <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {new Date(order.created_at).toLocaleString()}
+                            </p>
+                            {tableName && (
+                              <p className="text-xs text-muted-foreground">
+                                Table: {tableName}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {new Date(order.created_at).toLocaleString()}
-                          </p>
+                        <div className="text-right">
+                          <p className="font-bold">{currency} {Number(order.total_amount).toFixed(2)}</p>
+                          <Badge variant="outline" className={statusColors[order.status]}>
+                            {order.status}
+                          </Badge>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-bold">{currency} {Number(order.total_amount).toFixed(2)}</p>
-                        <Badge variant="outline" className={statusColors[order.status]}>
-                          {order.status}
-                        </Badge>
+                      
+                      {/* Order Items */}
+                      {items.length > 0 && (
+                        <div className="border-t border-border pt-3 mt-3">
+                          <p className="text-xs font-medium text-muted-foreground mb-2">Items:</p>
+                          <div className="space-y-1">
+                            {items.map((item) => (
+                              <div key={item.id} className="flex justify-between text-sm">
+                                <span>{item.quantity}x {item.name}</span>
+                                <span>{currency} {(Number(item.price) * item.quantity).toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Actions */}
+                      <div className="flex gap-2 mt-3 pt-3 border-t border-border">
+                        {canCancel && (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => {
+                              if (confirm('Are you sure you want to cancel this order?')) {
+                                onCancelOrder(order.id);
+                              }
+                            }}
+                          >
+                            <XCircle className="w-4 h-4 mr-1" />
+                            Cancel Order
+                          </Button>
+                        )}
+                        {isCancelled && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => setShowCancelledBill(order)}
+                          >
+                            View Cancelled Bill
+                          </Button>
+                        )}
                       </div>
                     </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={onClose} className="w-full">
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Cancelled Bill Dialog */}
+      <Dialog open={!!showCancelledBill} onOpenChange={() => setShowCancelledBill(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-center text-destructive">Cancelled Order Bill</DialogTitle>
+          </DialogHeader>
+          {showCancelledBill && (
+            <div className="space-y-4">
+              <div className="text-center py-4 border-b border-border">
+                <XCircle className="w-12 h-12 mx-auto mb-2 text-destructive" />
+                <p className="font-bold text-lg">ORDER CANCELLED</p>
+                <p className="text-sm text-muted-foreground">Show this to staff for refund</p>
+              </div>
+              
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Order ID:</span>
+                  <span className="font-mono">{showCancelledBill.id.slice(0, 8)}</span>
+                </div>
+                {tableName && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Table:</span>
+                    <span>{tableName}</span>
                   </div>
-                );
-              })}
+                )}
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Date:</span>
+                  <span>{new Date(showCancelledBill.created_at).toLocaleString()}</span>
+                </div>
+              </div>
+              
+              {/* Order Items */}
+              {orderItems[showCancelledBill.id]?.length > 0 && (
+                <div className="border-t border-border pt-3">
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Items:</p>
+                  <div className="space-y-1">
+                    {orderItems[showCancelledBill.id].map((item) => (
+                      <div key={item.id} className="flex justify-between text-sm">
+                        <span>{item.quantity}x {item.name}</span>
+                        <span>{currency} {(Number(item.price) * item.quantity).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              <div className="border-t border-border pt-3">
+                <div className="flex justify-between font-bold text-lg">
+                  <span>Refund Amount:</span>
+                  <span className="text-destructive">{currency} {Number(showCancelledBill.total_amount).toFixed(2)}</span>
+                </div>
+              </div>
             </div>
           )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} className="w-full">
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCancelledBill(null)} className="w-full">
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 
