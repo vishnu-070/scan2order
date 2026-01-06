@@ -488,6 +488,27 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      can_restaurant_accept_orders: {
+        Args: { p_restaurant_id: string }
+        Returns: boolean
+      }
+      can_restaurant_accept_orders_by_slug: {
+        Args: { p_slug: string }
+        Returns: boolean
+      }
+      get_public_restaurant_info: {
+        Args: { p_slug: string }
+        Returns: {
+          address: string
+          currency: string
+          description: string
+          id: string
+          is_active: boolean
+          logo_url: string
+          name: string
+          slug: string
+        }[]
+      }
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]

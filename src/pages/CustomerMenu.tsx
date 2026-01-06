@@ -40,9 +40,7 @@ type MenuCategory = Tables<'menu_categories'>;
 type MenuItem = Tables<'menu_items'>;
 type Order = Tables<'orders'>;
 
-interface RestaurantBalance {
-  balance: number;
-}
+// Using RPC function to check if restaurant can accept orders (hides actual balance for security)
 
 interface CartItem {
   menuItem: MenuItem;
@@ -82,7 +80,7 @@ const CustomerMenu = () => {
   const [tableName, setTableName] = useState<string | null>(null);
   
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
-  const [restaurantBalance, setRestaurantBalance] = useState<RestaurantBalance | null>(null);
+  const [canAcceptOrders, setCanAcceptOrders] = useState<boolean>(true);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -122,14 +120,11 @@ const CustomerMenu = () => {
 
       setRestaurant(restaurantData);
 
-      // Fetch restaurant balance
-      const { data: balanceData } = await supabase
-        .from('restaurant_balances')
-        .select('balance')
-        .eq('restaurant_id', restaurantData.id)
-        .maybeSingle();
+      // Check if restaurant can accept orders (uses RPC to hide actual balance)
+      const { data: canOrder } = await supabase
+        .rpc('can_restaurant_accept_orders', { p_restaurant_id: restaurantData.id });
 
-      setRestaurantBalance(balanceData);
+      setCanAcceptOrders(canOrder ?? false);
 
       // Fetch table name if tableId is provided
       if (tableId) {
@@ -368,7 +363,7 @@ const CustomerMenu = () => {
           </div>
           
           {/* Balance warning */}
-          {restaurantBalance && restaurantBalance.balance < 500 && (
+          {!canAcceptOrders && (
             <div className="mt-4 p-3 rounded-lg bg-destructive/20 text-primary-foreground">
               <p className="text-sm font-medium">
                 ⚠️ This restaurant is currently not accepting orders. Please contact staff.
@@ -581,7 +576,7 @@ const CustomerMenu = () => {
           setCart([]);
           setShowCheckout(false);
         }}
-        restaurantBalance={restaurantBalance}
+        canAcceptOrders={canAcceptOrders}
       />
 
       {/* My Orders Dialog */}
@@ -651,7 +646,7 @@ interface CheckoutDialogProps {
   tableId: string | null;
   total: number;
   onSuccess: () => void;
-  restaurantBalance: RestaurantBalance | null;
+  canAcceptOrders: boolean;
 }
 
 const CheckoutDialog = ({
@@ -662,7 +657,7 @@ const CheckoutDialog = ({
   tableId,
   total,
   onSuccess,
-  restaurantBalance,
+  canAcceptOrders,
 }: CheckoutDialogProps) => {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -671,7 +666,7 @@ const CheckoutDialog = ({
   const [orderPlaced, setOrderPlaced] = useState(false);
   const { toast } = useToast();
 
-  const canOrder = total > 0 && (restaurantBalance?.balance || 0) >= 500;
+  const canOrder = total > 0 && canAcceptOrders;
 
   const handleSubmit = async () => {
     setSubmitting(true);
