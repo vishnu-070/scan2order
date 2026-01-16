@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useRestaurant } from '@/hooks/useRestaurant';
@@ -55,6 +55,7 @@ const DashboardSettings = () => {
   const [showTransactionsDialog, setShowTransactionsDialog] = useState(false);
   const [rechargeAmount, setRechargeAmount] = useState('');
   const [recharging, setRecharging] = useState(false);
+  const rechargingRef = useRef(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -113,6 +114,8 @@ const DashboardSettings = () => {
   };
 
   const handleRecharge = async () => {
+    if (rechargingRef.current) return;
+
     const amount = parseFloat(rechargeAmount);
     if (isNaN(amount) || amount <= 0) {
       toast({
@@ -123,24 +126,30 @@ const DashboardSettings = () => {
       return;
     }
 
+    rechargingRef.current = true;
     setRecharging(true);
-    const { error } = await addRecharge(amount, `Self-recharge: ${amount}`);
-    
-    if (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to add balance',
-        variant: 'destructive',
-      });
-    } else {
-      toast({
-        title: 'Balance added',
-        description: `Successfully added ${formData.currency} ${amount} to your account`,
-      });
-      setShowRechargeDialog(false);
-      setRechargeAmount('');
+
+    try {
+      const { error } = await addRecharge(amount, `Self-recharge: ${amount}`);
+
+      if (error) {
+        toast({
+          title: 'Error',
+          description: 'Failed to add balance',
+          variant: 'destructive',
+        });
+      } else {
+        toast({
+          title: 'Balance added',
+          description: `Successfully added ${formData.currency} ${amount} to your account`,
+        });
+        setShowRechargeDialog(false);
+        setRechargeAmount('');
+      }
+    } finally {
+      setRecharging(false);
+      rechargingRef.current = false;
     }
-    setRecharging(false);
   };
 
   if (authLoading || restaurantLoading) {
